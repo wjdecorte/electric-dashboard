@@ -1,0 +1,38 @@
+# NAS statement database, uploaded PDFs, and local backups
+/data/*
+!/data/.keep
+*.sqlite
+*.sqlite3
+*.db
+*.sqlite-*
+*.sqlite3-*
+*.db-*
+*.pdf
+
+# Private initial statement records and account fingerprint
+/app/seed.json
+/app/account.json
+
+# Exported data and deployment archives
+statements.csv
+electric-statements.csv
+data.json
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# macOS metadata
+.DS_Store

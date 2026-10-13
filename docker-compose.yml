@@ -1,0 +1,25 @@
+services:
+  electric-dashboard:
+    build: .
+    image: electric-dashboard:local
+    restart: unless-stopped
+    ports:
+      - "8088:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      DATA_DIR: /data
+      PORT: "8080"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
