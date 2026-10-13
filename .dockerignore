@@ -3,3 +3,11 @@ tests/
 __pycache__/
 *.zip
 *.sqlite*
+
+.git/
+.impeccable/
+
+# Private initialization files must never enter published images
+app/seed.json
+app/account.json
+app/location.json

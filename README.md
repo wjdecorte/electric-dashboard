@@ -1,78 +1,117 @@
-# Electric dashboard for Synology Container Manager
+# Electric dashboard
 
-This package runs entirely on your NAS and includes the original 14 extracted statements. It has an Import statements button, PDF preview, duplicate detection, CSV/JSON exports and persistent storage. No cloud service is used to read PDFs.
+A local electricity dashboard for Synology Container Manager. Import Amicalola EMC PDFs, compare reported usage with last year, view cached weather by billing period, and record household events. SQLite stores statements, originals, events and settings on the NAS. No interval electricity readings or appliance usage are invented.
 
-## Install with Container Manager
+## Deployment pipeline
 
-1. Install **Container Manager** in DSM Package Center (on a supported NAS).
-2. In File Station, create **docker/electric-dashboard**.
-3. Upload and extract this ZIP into that folder. Ensure **docker-compose.yml**, **Dockerfile**, **requirements.txt**, **app/** and **data/** are directly inside it, not a second nested folder.
-4. Open **Container Manager → Project → Create**.
-5. Name the project **electric-dashboard**; set its path to the extracted folder.
-6. Select **Use existing docker-compose.yml** (wording can vary by DSM version). Review the file and proceed to build and start the project. Web Station is not needed.
-7. After the build completes, visit **http://YOUR-NAS-IP:8088** from your home network.
+Push to **master** → GitHub Actions tests the application → builds Intel (`amd64`) and ARM (`arm64`) images → publishes to **ghcr.io/wjdecorte/electric-dashboard** → the NAS pulls and recreates project **electric**.
 
-Initial build needs internet access to download the official Python image and PDF libraries. After that the dashboard and imports work locally. The image builds for the NAS architecture; no platform override is needed.
+GitHub never connects to your NAS. No NAS credentials, inbound port forwarding or self-hosted runner are needed. GitHub Actions uses its automatically provided GITHUB_TOKEN with package-write permission; no publishing token must be added to repository secrets. Pull requests run tests without publishing.
 
-If port 8088 is already used, change the left side of `8088:8080` in docker-compose.yml, then run `sudo sh update.sh` from the project folder on the NAS. If DSM firewall is enabled, allow the chosen port from your local subnet.
+Images are tagged `latest` for master, `sha-FULL_COMMIT_SHA` for every published build, and a version for `v*` release tags. A mutable latest tag makes routine upgrades easy; SHA tags support controlled rollouts.
 
-## Import more statements
+## One-time NAS setup / migration
 
-Select **Import statements**, choose one or several original Amicalola EMC PDFs, and review the extracted bill dates, kWh and charges. Select **Import N statements** to save the ready files.
-
-- Original PDFs and extracted records are saved together in `data/statements.sqlite`.
-- Existing statements are skipped; conflicting or overlapping billing periods are rejected.
-- Only statements matching the original utility account can be imported.
-- Meter differences, service days and charge totals must reconcile.
-- Maximum 10 MB and 5 pages per PDF. Password-protected PDFs, scans without text, and changed/unsupported layouts are rejected with an explanation. No appliance-level usage is inferred.
-- Imported originals have a **Download original PDF** link. The initial 14 records contain extracted data only; keep your original PDFs separately.
-- Any newly discovered billing years appear in the Period menu automatically.
-
-## Storage, backups and updates
-
-The `./data:/data` bind mount stores the database on the NAS outside the container. Restarting, rebuilding or recreating the container preserves it as long as you retain this folder and mapping. Do not delete or replace `data/` when updating application files.
-
-For a consistent backup, stop this project, copy the **data** folder using File Station or your NAS backup tool, then restart it. Restore while stopped by placing the saved data folder back before starting. CSV/JSON exports contain extracted records, not the original PDF attachments.
-
-To update the application, stop the project, replace app/, Dockerfile and requirements.txt, keep data/, then connect to the NAS over SSH and run `sudo sh update.sh` from this project folder. This explicitly builds a fresh image and recreates the container. If your Container Manager project has a different name, use `sudo env PROJECT_NAME=your-project-name sh update.sh`.
-
-## Access
-
-This local edition has no sign-in and serves PDFs to anyone who can access its port. Keep it on your home LAN; do not forward this port to the internet. For remote access, use your VPN or an authenticated reverse proxy. The original ChatGPT-hosted version is separate and is not updated by NAS imports.
-
-## Troubleshooting
-
-- **Build fails:** inspect Project/container logs; check NAS internet access and free disk space.
-- **Database is read-only / permission denied:** ensure the project's data folder permits writes by the container. The supplied container uses Docker's default user and does not require privileged mode.
-- **Can't connect:** verify the project is running and healthy, the NAS IP is correct, the host port is free and DSM firewall permits LAN access.
-- **Statement rejected:** use the original downloadable PDF; check that it is the same account and layout. A bill with new charge labels needs an importer update.
-
-Optional command-line deployment from the project folder: `docker compose up -d --build`.
-
-References:
-- Synology projects: https://kb.synology.com/en-us/DSM/help/ContainerManager/docker_project?version=7
-- Docker persistent storage: https://docs.docker.com/engine/storage/bind-mounts/
-
-## Prior-year comparison bars
-
-Total kWh and kWh-per-day views show blue current-period bars alongside brown bars for **Same period last year**, taken from the statement Comparisons section. A missing/zero reported prior-year value is labeled N/A. Daily comparisons use the prior-year period's own service days. No prior-year cost is plotted because it is not reported in these statements.
-
-On existing installations, this version automatically fills comparison service days for the 14 initial statements. New imports also capture those days. To apply this update, keep your existing data/ folder, replace app/ with the updated app/ folder, and rebuild/start the Container Manager project.
-
-
-## When the GUI only restarts the container
-
-A restart does not rebuild code copied into the image. After copying the updated app/ files to the NAS project folder, connect over SSH and run:
+1. Wait for **Test and publish container** in GitHub Actions to complete.
+2. In File Station, put `docker-compose.yml`, `update.sh`, and `scripts/prepare_data.py` in the existing NAS project folder, typically `/volume1/docker/electric-dashboard`. The scripts/ folder must be beside the Compose file.
+3. **Keep your existing data/ folder.** Also retain old app/seed.json, app/account.json and app/location.json if present until the first migration completes. They are local initialization inputs; they never enter published images.
+4. Check image access. New GHCR packages are private by default even for public repositories. Either log in to GHCR on the NAS, or change this code-only package to public in GitHub's package settings if anonymous pulls are desired. Do not expose the NAS dashboard itself to the internet.
+5. Connect to the NAS over SSH and run:
 
 ```sh
 cd /volume1/docker/electric-dashboard
 sudo sh update.sh
 ```
 
-Use your actual NAS volume/folder and the exact Container Manager project name. The default project name is electric-dashboard. For another name:
+Use your actual folder. The script defaults to Container Manager project **electric**. For a different name, use `sudo env PROJECT_NAME=your-project-name sh update.sh`.
+
+If creating a new installation, create **Container Manager → Project → Create**, name it electric, choose this folder and the existing docker-compose.yml, then start it after registry access is configured. The published image starts empty: import the first PDF to establish the account, then choose the weather location in Settings. To use local private initialization files on a new installation, run update.sh before importing.
+
+Visit **http://YOUR-NAS-IP:8088**. Web Station is optional. For a dedicated hostname or HTTPS, use a hostname-based portal/reverse proxy; path prefixes are not supported. Preserve the original Host header for API requests.
+
+## Private registry login
+
+For a private GHCR package, create a GitHub personal access token (classic) with **read:packages** and authorize it for the organization if required. Log in on the NAS using the same account that runs updates:
 
 ```sh
-sudo env PROJECT_NAME=your-project-name sh update.sh
+sudo docker login ghcr.io -u wjdecorte
 ```
 
-The script stops on a failed build, leaving the running container in place. It does not delete or replace data/. Successful output includes Docker build steps and a container recreation, not just a restart. Refresh the dashboard afterward.
+At the password prompt, enter the token—not your GitHub password. Never put it in the Compose file, update.sh or a Git commit. A root-owned DSM task uses root's Docker credentials; logging in without sudo may not provide credentials to that task.
+
+## Routine and optional automatic updates
+
+Run `sudo sh update.sh` whenever you want the latest tested image. It:
+
+- Pulls before stopping the running application; a download failure leaves it running.
+- Skips recreation when the same image is already healthy.
+- Tags the previous image for rollback.
+- Stops the app, makes a consistent SQLite backup, and migrates local private initialization files into NAS storage only when needed.
+- Recreates the existing electric project without building on the NAS.
+- Checks container health and restores the previous image if startup fails.
+
+Backups are kept under `data/backups/`, retaining the five most recent automatic snapshots. Automatic rollback restores the previous image, not the database; migrations currently add tables/fields without deleting old data. For a breaking migration, restore a matching database backup while the app is stopped. Initial installations without a previous image have no image rollback.
+
+For hands-off updates, add **DSM Control Panel → Task Scheduler → Create → Scheduled Task → User-defined script**, run as root, and choose your preferred schedule (for example, nightly). Use:
+
+```sh
+sh /volume1/docker/electric-dashboard/update.sh
+```
+
+Enable failure notifications in DSM if desired. The task polls the registry; it requires outbound HTTPS only. The script prevents simultaneous updates with a lock folder. If a task is killed abruptly, check that no updater is running before removing stale `data/.update-lock`.
+
+## Pinning / rollback
+
+Copy .env.example to .env and set ELECTRIC_IMAGE to a published SHA tag:
+
+```text
+ELECTRIC_IMAGE=ghcr.io/wjdecorte/electric-dashboard:sha-FULL_COMMIT_SHA
+```
+
+Then run update.sh. The .env file is ignored by Git. Pinning holds that image until the setting is changed. To resume latest updates, set the image back to the latest tag.
+
+For an immediate image rollback, temporarily set ELECTRIC_IMAGE=electric-dashboard:rollback in .env and use Container Manager to recreate/start the project with the existing local image. Do not delete data/. Do not remove the previous image until an upgrade is confirmed healthy.
+
+## Storage and privacy
+
+The `./data:/data` bind mount keeps runtime data outside containers. Retain this exact mapping and folder across upgrades. CSV/JSON downloads contain statement records, not household events or original attachments; back up the database for a complete copy.
+
+Private seed/account/location JSON, uploaded PDFs, databases, exports and local secrets are ignored by Git. Published images also exclude private initialization JSON, data/, and Git metadata. A fresh GitHub clone starts without personal data. This local edition has no sign-in: limit its port to the home network/VPN.
+
+## Weather and household events
+
+Weather uses Open-Meteo historical reanalysis, a modeled regional record, not a sensor at the house. It is cached locally and remains usable offline. Requests send coordinates and dates, never statements or event notes. Settings allows a city or ZIP search; search sends that query to the geocoder. New weather needs outbound access to geocoding-api.open-meteo.com and archive-api.open-meteo.com.
+
+Weather periods are start-inclusive/end-exclusive to avoid double-counting meter-reading boundaries. Heating/cooling degree days use a 65°F base. Missing days are marked incomplete; prior-year windows are marked approximate unless a matching prior-year statement establishes the dates. No weather-based appliance consumption or savings are inferred.
+
+Household events support dated ranges, categories, notes, editing and deletion. They appear beside matching statements and as timeline markers. Initial extracted records may lack original attachments; imported new PDFs are retained.
+
+## Local development
+
+Production Compose only pulls a published image. To build locally:
+
+```sh
+docker compose -p electric-dev -f docker-compose.yml -f compose.local.yml up -d --build
+```
+
+Use a different folder/data mapping and port if running beside the NAS deployment. The same privacy exclusions apply to local images; private initialization JSON is not baked in. The NAS bootstrap script can migrate local inputs into data/.
+
+Checks:
+
+```sh
+python -m pip install -r requirements.txt
+python -m unittest discover -s tests -v
+node --check app/static/app.js
+node --check app/static/charts.js
+```
+
+## Troubleshooting
+
+- **denied / unauthorized when pulling:** configure package access or log in using read:packages.
+- **project looks stopped in Container Manager:** use PROJECT_NAME=electric, matching its UI project name exactly.
+- **permission denied in data/:** allow container writes to the project data folder. Privileged mode is not required.
+- **health check failed:** inspect `docker compose -p electric logs --tail 50`; update.sh restores the old image when available.
+- **port already allocated:** edit the host side of `8088:8080` in the NAS Compose file.
+- **nothing updates:** confirm the Actions run succeeded and check for a pinned ELECTRIC_IMAGE in .env.
+
+References: [GitHub Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry), [Docker multi-platform Actions](https://docs.docker.com/build/ci/github-actions/multi-platform/), [Synology projects](https://kb.synology.com/en-us/DSM/help/ContainerManager/docker_project?version=7).

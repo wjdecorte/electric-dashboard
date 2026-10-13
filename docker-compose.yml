@@ -1,7 +1,6 @@
 services:
   electric-dashboard:
-    build: .
-    image: electric-dashboard:local
+    image: ${ELECTRIC_IMAGE:-ghcr.io/wjdecorte/electric-dashboard:latest}
     restart: unless-stopped
     ports:
       - "8088:8080"

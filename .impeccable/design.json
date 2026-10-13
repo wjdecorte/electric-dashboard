@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-13T17:23:49.182317+00:00",
+  "title": "Design System: Electric dashboard",
+  "extensions": {
+    "shadows": [],
+    "motion": [
+      {
+        "name": "button-hover",
+        "value": "background-color .15s ease-out",
+        "purpose": "Enabled only when prefers-reduced-motion is no-preference."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "analysis-stack",
+        "value": "1100px"
+      },
+      {
+        "name": "phone",
+        "value": "700px"
+      }
+    ],
+    "colorMeta": {
+      "bg": {
+        "displayName": "Bg",
+        "role": "neutral"
+      },
+      "surface": {
+        "displayName": "Surface",
+        "role": "neutral"
+      },
+      "ink": {
+        "displayName": "Ink",
+        "role": "neutral"
+      },
+      "muted": {
+        "displayName": "Muted",
+        "role": "neutral"
+      },
+      "line": {
+        "displayName": "Line",
+        "role": "neutral"
+      },
+      "blue": {
+        "displayName": "Blue",
+        "role": "primary"
+      },
+      "prior": {
+        "displayName": "Prior",
+        "role": "neutral"
+      },
+      "weather": {
+        "displayName": "Weather",
+        "role": "secondary"
+      },
+      "success": {
+        "displayName": "Success",
+        "role": "neutral"
+      },
+      "error": {
+        "displayName": "Error",
+        "role": "neutral"
+      },
+      "soft": {
+        "displayName": "Soft",
+        "role": "neutral"
+      }
+    }
+  },
+  "components": [
+    {
+      "name": "Primary button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "html": "<button class=\"ds-primary\">Save event</button>",
+      "css": ".ds-primary{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;font-size:15px;line-height:1.5;border:1px solid var(--line,#dde4eb);border-radius:7px;padding:8px 13px;min-height:38px;cursor:pointer;background:var(--blue,#2457c5);color:white;border-color:var(--blue,#2457c5)} .ds-primary:hover{background:#1c459c} .ds-primary:focus-visible{outline:3px solid var(--blue,#2457c5);outline-offset:3px}",
+      "description": "Compact, familiar action control."
+    },
+    {
+      "name": "Secondary button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "html": "<button class=\"ds-secondary\">Save event</button>",
+      "css": ".ds-secondary{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;font-size:15px;line-height:1.5;border:1px solid var(--line,#dde4eb);border-radius:7px;padding:8px 13px;min-height:38px;cursor:pointer;background:white;color:var(--ink,#172b3a)} .ds-secondary:hover{background:#edf2f8} .ds-secondary:focus-visible{outline:3px solid var(--blue,#2457c5);outline-offset:3px}",
+      "description": "Compact, familiar action control."
+    },
+    {
+      "name": "Labeled field",
+      "kind": "input",
+      "refersTo": "field",
+      "html": "<label class=\"ds-label\">Event title<input class=\"ds-field\" placeholder=\"Event title\"></label>",
+      "css": ".ds-label{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;font-size:15px;line-height:1.5;display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:600;color:var(--muted,#526273)}.ds-field{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;font-size:15px;line-height:1.5;padding:9px 10px;border:1px solid #aebac7;border-radius:6px;background:white;color:var(--ink,#172b3a)}.ds-field:focus-visible{outline:3px solid var(--blue,#2457c5);outline-offset:3px}",
+      "description": "Persistent label and clear input boundary."
+    },
+    {
+      "name": "Navigation",
+      "kind": "nav",
+      "refersTo": "",
+      "html": "<nav class=\"ds-nav\"><button aria-current=\"page\">Overview</button><button>Statements</button><button>Household events</button><button>Settings</button></nav>",
+      "css": ".ds-nav{display:flex;gap:26px;border-bottom:1px solid var(--line,#dde4eb);overflow:auto}.ds-nav button{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;font-size:15px;line-height:1.5;border:0;background:none;padding:12px 0;color:var(--muted,#526273);cursor:pointer}.ds-nav button[aria-current]{color:var(--blue,#2457c5);box-shadow:0 2px 0 var(--blue,#2457c5);font-weight:600}.ds-nav button:hover{background:#edf2f8}.ds-nav button:focus-visible{outline:3px solid var(--blue,#2457c5);outline-offset:3px}",
+      "description": "Underlined active section and horizontally scrollable tabs."
+    },
+    {
+      "name": "Evidence surface",
+      "kind": "card",
+      "refersTo": "surface",
+      "html": "<section class=\"ds-surface\"><h2>Statement evidence</h2><p>Source records and period averages.</p></section>",
+      "css": ".ds-surface{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;font-size:15px;line-height:1.5;background:var(--surface,#fff);border-radius:12px;padding:24px;color:var(--ink,#172b3a)}.ds-surface h2{font-size:20px;line-height:1.3;font-weight:650;letter-spacing:-.02em;margin:0 0 8px}.ds-surface p{color:var(--muted,#526273);margin:0}",
+      "description": "Flat container for related evidence."
+    }
+  ],
+  "narrative": {
+    "overview": "A restrained light workspace makes statement evidence easy to inspect. Clear numbers, quiet surfaces and familiar controls support repeat use; blue usage, gray comparisons and amber weather preserve consistent meaning.",
+    "keyCharacteristics": [
+      "restrained light surfaces",
+      "evidence-first numbers",
+      "semantic chart colors"
+    ],
+    "rules": [
+      {
+        "name": "The Series Meaning Rule",
+        "body": "Keep color meaning consistent across chart, legend and readout.",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "Do keep current usage blue, prior comparisons gray and weather amber.",
+      "Do use tabular numbers, visible units and explicit missing-data states.",
+      "Do keep keyboard focus visible and preserve chart scrolling on narrow screens."
+    ],
+    "donts": [
+      "Don't introduce decorative raster imagery.",
+      "Don't imply measured daily electricity or appliance causation through chart styling.",
+      "Don't hide provenance or incomplete coverage behind visual polish."
+    ]
+  }
+}
