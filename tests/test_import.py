@@ -108,12 +108,19 @@ class Imports(unittest.TestCase):
         enrichment.save_location(location)
         small=dict(BASE,start='2026-08-10',end='2026-08-12',prior_year_kwh=0,prior_year_days=0)
         payload=dict(daily=dict(time=['2026-08-10','2026-08-11'],temperature_2m_mean=[60,75],temperature_2m_min=[50,65],temperature_2m_max=[70,85]))
-        with patch.object(enrichment,'statement_rows',return_value=[small]),patch.object(enrichment,'fetch_json',return_value=payload) as fetch:
+        with patch.object(enrichment,'prior_window',return_value=None),patch.object(enrichment,'statement_rows',return_value=[small]),patch.object(enrichment,'fetch_json',return_value=payload) as fetch:
             enrichment.refresh_weather();self.assertTrue(enrichment._lock.acquire(timeout=5));enrichment._lock.release()
             self.assertEqual(fetch.call_count,1)
             enrichment.refresh_weather();self.assertTrue(enrichment._lock.acquire(timeout=5));enrichment._lock.release()
             self.assertEqual(fetch.call_count,1)
         self.assertTrue(enrichment.weather_context([small])[small['end']]['current']['complete'])
+
+    def test_weather_year_ago_does_not_require_prior_usage(self):
+        row=dict(BASE,start='2024-02-29',end='2024-03-30',prior_year_kwh=0,prior_year_days=0)
+        window=enrichment.prior_window(row,[])
+        self.assertEqual(window['start'],'2023-02-28')
+        self.assertEqual(window['end'],'2023-03-30')
+        self.assertTrue(window['calendar_window'])
 
     def test_settings_reject_invalid_coordinates(self):
         with self.assertRaises(ValueError):enrichment.save_location(dict(name='Test',latitude=float('nan'),longitude=0,timezone='UTC'))

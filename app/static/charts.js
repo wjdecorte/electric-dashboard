@@ -19,14 +19,18 @@ const Charts = (()=>{
     target.innerHTML=`<div class="y-axis" aria-hidden="true">${scaledAxis}</div><div class="plot-scroll" style="--periods:${rows.length}"><div class="plot">${scaledLines}${bars}</div><div class="x-axis">${rows.map(r=>{const eventCount=events.filter(e=>e.start<r.end&&e.end>=r.start).length;return `<span>${new Date(r.end+'T12:00:00').toLocaleDateString('en-US',{month:'short'})}<br>${r.end.slice(2,4)}${eventCount?`<i class="event-dot" title="${eventCount} household event(s)"></i>`:''}</span>`;}).join('')}</div></div>`;
     const selectedButton=target.querySelector('.selected');const scroll=target.querySelector('.plot-scroll');if(selectedButton)scroll.scrollLeft=Math.max(0,selectedButton.offsetLeft-scroll.clientWidth/2+selectedButton.clientWidth/2);
   }
-  function weather(target,days){
-    if(!days.length){target.innerHTML='<p class="small">No weather is cached for this service period yet.</p>';return;}
-    const w=1000,h=200,left=45,right=15,top=15,bottom=35;const low=Math.floor(Math.min(...days.map(d=>d.mean_f))/10)*10-5;const high=Math.ceil(Math.max(...days.map(d=>d.mean_f))/10)*10+5;
-    const firstDay=new Date(days[0].day+'T12:00:00Z');const elapsed=d=>(new Date(d.day+'T12:00:00Z')-firstDay)/86400000;const span=Math.max(1,elapsed(days.at(-1)));const x=i=>left+elapsed(days[i])/span*(w-left-right);const y=t=>h-bottom-(t-low)/(high-low)*(h-top-bottom);
-    const ticks=Array.from({length:4},(_,i)=>low+(high-low)*i/3);
-    const path=days.map((d,i)=>`${i&&elapsed(d)-elapsed(days[i-1])===1?'L':'M'}${x(i).toFixed(1)},${y(d.mean_f).toFixed(1)}`).join(' ');
-    const grid=ticks.map(t=>`<line class="grid" x1="${left}" x2="${w-right}" y1="${y(t)}" y2="${y(t)}"/><text x="${left-7}" y="${y(t)+4}" text-anchor="end">${Math.round(t)}°F</text>`).join('');
-    target.innerHTML=`<svg class="weather-svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="Daily mean temperature for the selected service period"><title>Daily mean outdoor temperature, °F</title>${grid}<path class="weather-path" d="${path}"/>${days.map((d,i)=>`<circle cx="${x(i)}" cy="${y(d.mean_f)}" r="3" fill="var(--weather)"><title>${d.day}: mean ${number(d.mean_f)}°F, low ${number(d.low_f)}°F, high ${number(d.high_f)}°F</title></circle>`).join('')}<text x="${left}" y="${h-8}">${days[0].day}</text><text x="${w-right}" y="${h-8}" text-anchor="end">${days.at(-1).day}</text></svg>`;
+  function weather(target,days,priorDays=[],currentStart,priorStart){
+    const all=[...days,...priorDays];
+    if(!all.length){target.innerHTML='<p class="small">No weather is cached for either period yet. Refresh weather to fetch both years.</p>';return;}
+    const w=1000,h=220,left=45,right=15,top=15,bottom=35;
+    const low=Math.floor(Math.min(...all.map(d=>d.mean_f))/10)*10-5,high=Math.ceil(Math.max(...all.map(d=>d.mean_f))/10)*10+5;
+    const offset=(d,start)=>(new Date(d.day+'T12:00:00Z')-new Date(start+'T12:00:00Z'))/86400000;
+    const series=[{days,start:currentStart||days[0]?.day,name:'This period',color:'var(--weather)',dash:''},{days:priorDays,start:priorStart||priorDays[0]?.day,name:'Year ago',color:'var(--prior)',dash:'stroke-dasharray="7 5"'}];
+    const span=Math.max(1,...series.flatMap(s=>s.days.map(d=>offset(d,s.start))));
+    const x=(d,start)=>left+offset(d,start)/span*(w-left-right),y=t=>h-bottom-(t-low)/(high-low)*(h-top-bottom);
+    const grid=Array.from({length:4},(_,i)=>low+(high-low)*i/3).map(t=>`<line class="grid" x1="${left}" x2="${w-right}" y1="${y(t)}" y2="${y(t)}"/><text x="${left-7}" y="${y(t)+4}" text-anchor="end">${Math.round(t)}°F</text>`).join('');
+    const paths=series.map(s=>{const path=s.days.map((d,i)=>`${i&&offset(d,s.start)-offset(s.days[i-1],s.start)===1?'L':'M'}${x(d,s.start).toFixed(1)},${y(d.mean_f).toFixed(1)}`).join(' ');return `<path fill="none" stroke="${s.color}" stroke-width="2.5" ${s.dash} d="${path}"/>`+s.days.map(d=>`<circle cx="${x(d,s.start)}" cy="${y(d.mean_f)}" r="3" fill="${s.color}"><title>${s.name}, ${d.day}: mean ${number(d.mean_f)}°F, low ${number(d.low_f)}°F, high ${number(d.high_f)}°F</title></circle>`).join('');}).join('');
+    target.innerHTML=`<svg class="weather-svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="Daily mean outdoor temperatures: current period and year ago, aligned by service day"><title>Current and prior-year temperatures in °F</title>${grid}${paths}<text x="${left}" y="${h-8}">Service day 1</text><text x="${w-right}" y="${h-8}" text-anchor="end">Service day ${span+1}</text></svg>`;
   }
   return {usage,weather,values,label};
 })();

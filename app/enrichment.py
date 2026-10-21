@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 from urllib.request import urlopen
 from zoneinfo import ZoneInfo
 
-VERSION = '2.0.0'
+VERSION = '2.1.0'
 _lock = threading.Lock()
 connect = None
 statement_rows = None
@@ -93,8 +93,13 @@ def delete_event(event_id):
     with connect() as db:db.execute('DELETE FROM events WHERE id=?',(event_id,))
 
 def prior_window(row, statements):
-    if not row.get('prior_year_kwh') or not row.get('prior_year_days'):return None
     current_end=date.fromisoformat(row['end'])
+    if not row.get('prior_year_kwh') or not row.get('prior_year_days'):
+        def year_ago(value):
+            original=date.fromisoformat(value)
+            try:return original.replace(year=original.year-1)
+            except ValueError:return original.replace(year=original.year-1,day=28)
+        return dict(start=year_ago(row['start']).isoformat(),end=year_ago(row['end']).isoformat(),estimated=False,calendar_window=True)
     candidates=[r for r in statements if date.fromisoformat(r['end']).year==current_end.year-1 and date.fromisoformat(r['end']).month==current_end.month and r['kwh']==row['prior_year_kwh'] and r['days']==row['prior_year_days']]
     if len(candidates)==1:return dict(start=candidates[0]['start'],end=candidates[0]['end'],estimated=False)
     try:prior_end=current_end.replace(year=current_end.year-1)
@@ -122,7 +127,9 @@ def weather_context(statements):
         current=period_weather(row['start'],row['end'],records)
         window=prior_window(row,statements)
         prior=period_weather(window['start'],window['end'],records) if window else None
-        if prior:prior['estimated_window']=window['estimated']
+        if prior:
+            prior['estimated_window']=window['estimated']
+            prior['calendar_window']=window.get('calendar_window',False)
         result[row['end']]=dict(current=current,prior=prior)
     return result
 

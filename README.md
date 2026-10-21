@@ -115,3 +115,10 @@ node --check app/static/charts.js
 - **nothing updates:** confirm the Actions run succeeded and check for a pinned ELECTRIC_IMAGE in .env.
 
 References: [GitHub Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry), [Docker multi-platform Actions](https://docs.docker.com/build/ci/github-actions/multi-platform/), [Synology projects](https://kb.synology.com/en-us/DSM/help/ContainerManager/docker_project?version=7).
+
+
+### Weather comparison (2.1)
+
+The weather section compares current and prior-year mean temperature, heating degree days and cooling degree days, with coverage counts and differences. Differences require complete coverage for both periods. A solid amber and dashed gray temperature series align by service-day number. Different billing lengths are retained.
+
+If no prior-year electricity comparison is supplied, weather still uses the same calendar dates a year earlier (February 29 maps to February 28). Otherwise the existing matched or explicitly approximate billing window is used. New missing history is fetched at startup or with Refresh weather; cached weather remains usable offline.
