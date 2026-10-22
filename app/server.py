@@ -150,6 +150,12 @@ def import_pdf(raw, filename, save=False):
 
 enrichment.configure(connect, rows)
 
+TEXT='; charset=utf-8'
+ICON_CACHE='public, max-age=86400'
+ASSETS={'/styles.css':('text/css'+TEXT,None),'/app.js':('text/javascript'+TEXT,None),'/charts.js':('text/javascript'+TEXT,None),
+        '/manifest.webmanifest':('application/manifest+json'+TEXT,None),'/icon.svg':('image/svg+xml',ICON_CACHE),
+        '/apple-touch-icon.png':('image/png',ICON_CACHE),'/icon-192.png':('image/png',ICON_CACHE),'/icon-512.png':('image/png',ICON_CACHE)}
+
 class Handler(BaseHTTPRequestHandler):
     def setup(self):
         super().setup()
@@ -172,9 +178,9 @@ class Handler(BaseHTTPRequestHandler):
             try: return self.reply(200,enrichment.search_location(parse_qs(urlsplit(self.path).query).get('q',[''])[0]))
             except ValueError as error:return self.reply(422,{'error':str(error)})
             except Exception:return self.reply(502,{'error':'Location search is unavailable. Check NAS internet access and retry.'})
-        if path in ('/styles.css','/app.js','/charts.js'):
-            mime='text/css' if path.endswith('.css') else 'text/javascript'
-            return self.reply(200,(ROOT/'static'/path[1:]).read_bytes(),mime+'; charset=utf-8')
+        if path in ASSETS:
+            mime,cache=ASSETS[path]
+            return self.reply(200,(ROOT/'static'/path[1:]).read_bytes(),mime,{'Cache-Control':cache} if cache else None)
         if path in ('/api/statements','/data.json'): return self.reply(200,rows())
         if path == '/health': return self.reply(200, {'status':'ok','version':enrichment.VERSION,'revision':os.environ.get('APP_REVISION','development')})
         if path == '/api/export.csv':
@@ -185,6 +191,7 @@ class Handler(BaseHTTPRequestHandler):
             with connect() as db: item=db.execute('SELECT pdf FROM statements WHERE end=?',(path.rsplit('/',1)[1],)).fetchone()
             if item and item['pdf']: return self.reply(200,item['pdf'],'application/pdf',{'Content-Disposition':'attachment; filename="statement.pdf"'})
             return self.reply(404,{'error':'Original PDF is not stored for this statement.'})
+        if path == '/favicon.ico': return self.reply(200,(ROOT/'static/icon.svg').read_bytes(),'image/svg+xml')
         if path in ('/','/index.html'): return self.reply(200,(ROOT/'static/index.html').read_bytes(),'text/html; charset=utf-8')
         return self.reply(404,{'error':'Not found.'})
 

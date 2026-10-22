@@ -1,6 +1,6 @@
-# Electric dashboard
+# Wattwise
 
-A local electricity dashboard for Synology Container Manager. Import Amicalola EMC PDFs, compare reported usage with last year, view cached weather by billing period, and record household events. SQLite stores statements, originals, events and settings on the NAS. No interval electricity readings or appliance usage are invented.
+Wattwise is a local electricity dashboard for Synology Container Manager. Import Amicalola EMC PDFs, compare reported usage with last year, view cached weather by billing period, and record household events. SQLite stores statements, originals, events and settings on the NAS. No interval electricity readings or appliance usage are invented.
 
 ## Deployment pipeline
 
@@ -122,3 +122,11 @@ References: [GitHub Container Registry](https://docs.github.com/en/packages/work
 The weather section compares current and prior-year mean temperature, heating degree days and cooling degree days, with coverage counts and differences. Differences require complete coverage for both periods. A solid amber and dashed gray temperature series align by service-day number. Different billing lengths are retained.
 
 If no prior-year electricity comparison is supplied, weather still uses the same calendar dates a year earlier (February 29 maps to February 28). Otherwise the existing matched or explicitly approximate billing window is used. New missing history is fetched at startup or with Refresh weather; cached weather remains usable offline.
+
+## Add to iPhone home screen
+
+Open the dashboard in Safari, tap Share, then Add to Home Screen. The Wattwise bolt icon and standalone full-screen mode come from `app/static/apple-touch-icon.png` and `manifest.webmanifest`.
+
+---
+
+Powered by DeCorte Industries, Inc. © 2026 DeCorte Industries, Inc.
