@@ -1,5 +1,5 @@
 ---
-name: Wattwise
+name: Ampersight
 description: Navy app band over a light evidence workspace.
 colors:
   bg: "#f4f6f8"
@@ -79,7 +79,7 @@ components:
     padding: "24px"
 ---
 
-# Design System: Wattwise
+# Design System: Ampersight
 
 ## Overview
 

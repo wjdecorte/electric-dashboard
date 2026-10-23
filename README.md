@@ -1,6 +1,6 @@
-# Wattwise
+# Ampersight
 
-Wattwise is a local electricity dashboard for Synology Container Manager. Import Amicalola EMC PDFs, compare reported usage with last year, view cached weather by billing period, and record household events. SQLite stores statements, originals, events and settings on the NAS. No interval electricity readings or appliance usage are invented.
+Ampersight is a local electricity dashboard for Synology Container Manager. Import Amicalola EMC PDFs, compare reported usage with last year, view cached weather by billing period, and record household events. SQLite stores statements, originals, events and settings on the NAS. No interval electricity readings or appliance usage are invented.
 
 ## Deployment pipeline
 
@@ -125,7 +125,7 @@ If no prior-year electricity comparison is supplied, weather still uses the same
 
 ## Add to iPhone home screen
 
-Open the dashboard in Safari, tap Share, then Add to Home Screen. The Wattwise bolt icon and standalone full-screen mode come from `app/static/apple-touch-icon.png` and `manifest.webmanifest`.
+Open the dashboard in Safari, tap Share, then Add to Home Screen. The Ampersight bolt icon and standalone full-screen mode come from `app/static/apple-touch-icon.png` and `manifest.webmanifest`.
 
 ---
 
