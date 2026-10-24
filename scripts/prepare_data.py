@@ -1,28 +1,28 @@
-"""Back up local data and migrate private initialization inputs on the NAS only."""
+"""Move legacy SQLite data and private initialization inputs into PostgreSQL (NAS only).
 
-from datetime import datetime, timezone
+Run inside the application image by update.sh, with the project folder mounted at /bootstrap
+and the data folder at /data. Every step is idempotent and skips what is already stored.
+"""
+
 import json
-from pathlib import Path
-import sqlite3
+import os
 import sys
+from pathlib import Path
+
+sys.path.insert(0, os.environ.get("APP_DIR", "/app"))
+
+import database  # noqa: E402
+import enrichment  # noqa: E402
 
 project = Path(sys.argv[1] if len(sys.argv) > 1 else "/bootstrap")
 data = Path(sys.argv[2] if len(sys.argv) > 2 else "/data")
-data.mkdir(parents=True, exist_ok=True)
-path = data / "statements.sqlite"
-if path.exists():
-    backups = data / "backups"
-    backups.mkdir(exist_ok=True)
-    backup_path = backups / (
-        "pre-update-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f") + ".sqlite"
-    )
-    with sqlite3.connect(path) as source, sqlite3.connect(backup_path) as destination:
-        source.backup(destination)
-    for old in sorted(backups.glob("pre-update-*.sqlite"))[:-5]:
-        old.unlink()
-    print("Created local database backup:", backup_path.name)
-with sqlite3.connect(path) as db:
-    db.execute("CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT)")
+
+database.wait_for_database()
+with database.connect() as db:
+    database.create_schema(db)
+    counts = database.import_legacy_sqlite(db, data / "statements.sqlite")
+    if counts is not None:
+        print("Imported legacy SQLite database into PostgreSQL:", counts)
     for name, key, field in [
         ("account.json", "account_hash", "sha256"),
         ("location.json", "weather_location", None),
@@ -30,43 +30,36 @@ with sqlite3.connect(path) as db:
         source = project / "app" / name
         if (
             source.exists()
-            and not db.execute("SELECT 1 FROM metadata WHERE key=?", (key,)).fetchone()
+            and not db.execute("SELECT 1 FROM metadata WHERE key=%s", (key,)).fetchone()
         ):
             value = json.loads(source.read_text())
-            value = value[field] if field else value
-            db.execute("INSERT INTO metadata VALUES (?,?)", (key, json.dumps(value)))
+            enrichment.set_meta(db, key, value[field] if field else value)
             print("Retained local setting:", key)
     seed = project / "app/seed.json"
-    if (
-        seed.exists()
-        and not db.execute("SELECT 1 FROM metadata WHERE key='initialized'").fetchone()
-    ):
-        db.execute(
-            "CREATE TABLE IF NOT EXISTS statements (end TEXT PRIMARY KEY,start TEXT NOT NULL,row_json TEXT NOT NULL,pdf BLOB,sha256 TEXT UNIQUE)"
-        )
-        for row in json.loads(seed.read_text()):
-            db.execute(
-                "INSERT OR IGNORE INTO statements VALUES (?,?,?,?,?)",
-                (row["end"], row["start"], json.dumps(row), None, None),
-            )
-        db.execute("INSERT INTO metadata VALUES ('initialized','1')")
-        print("Retained local seed records")
-
-# Backfill service days only from matching local statement evidence.
-seed = project / "app/seed.json"
-if seed.exists():
-    with sqlite3.connect(path) as db:
-        for row in json.loads(seed.read_text()):
+    if seed.exists():
+        rows = json.loads(seed.read_text())
+        if not db.execute("SELECT 1 FROM metadata WHERE key='initialized'").fetchone():
+            for row in rows:
+                db.execute(
+                    "INSERT INTO statements (period_end, period_start, row_json)"
+                    " VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                    (row["end"], row["start"], json.dumps(row)),
+                )
+            enrichment.set_meta(db, "initialized", 1)
+            print("Retained local seed records")
+        # Backfill service days only from matching local statement evidence.
+        for row in rows:
             old = db.execute(
-                "SELECT row_json FROM statements WHERE end=?", (row["end"],)
+                "SELECT row_json FROM statements WHERE period_end=%s", (row["end"],)
             ).fetchone()
-            if old:
-                saved = json.loads(old[0])
-                if "prior_year_days" not in saved and saved.get("prior_year_kwh") == row.get(
-                    "prior_year_kwh"
-                ):
-                    saved["prior_year_days"] = row.get("prior_year_days", 0)
-                    db.execute(
-                        "UPDATE statements SET row_json=? WHERE end=?",
-                        (json.dumps(saved), row["end"]),
-                    )
+            saved = old["row_json"] if old else None
+            if (
+                saved
+                and "prior_year_days" not in saved
+                and saved.get("prior_year_kwh") == row.get("prior_year_kwh")
+            ):
+                saved["prior_year_days"] = row.get("prior_year_days", 0)
+                db.execute(
+                    "UPDATE statements SET row_json=%s WHERE period_end=%s",
+                    (json.dumps(saved), row["end"]),
+                )

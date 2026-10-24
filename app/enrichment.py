@@ -1,15 +1,15 @@
 """Persistent household events and cached, date-aligned historical weather."""
 
-from datetime import date, datetime, timedelta, timezone
 import json
 import math
 import os
 import threading
+from datetime import UTC, date, datetime, timedelta
 from urllib.parse import urlencode
 from urllib.request import urlopen
 from zoneinfo import ZoneInfo
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 _lock = threading.Lock()
 connect = None
 statement_rows = None
@@ -21,35 +21,30 @@ def configure(db_connect, get_rows):
 
 
 def migrate(db, location=None):
-    db.execute(
-        "CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, start TEXT NOT NULL, end TEXT NOT NULL, title TEXT NOT NULL, category TEXT NOT NULL, notes TEXT NOT NULL, updated_at TEXT NOT NULL)"
-    )
-    db.execute(
-        "CREATE TABLE IF NOT EXISTS weather (location_key TEXT NOT NULL, day TEXT NOT NULL, mean REAL NOT NULL, low REAL NOT NULL, high REAL NOT NULL, fetched_at TEXT NOT NULL, PRIMARY KEY(location_key,day))"
-    )
     if (
         location
         and not db.execute("SELECT 1 FROM metadata WHERE key='weather_location'").fetchone()
     ):
         set_meta(db, "weather_location", location)
-    set_meta(db, "schema_version", 2)
+    set_meta(db, "schema_version", 3)
 
 
 def now():
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def set_meta(db, key, value):
     db.execute(
-        "INSERT INTO metadata(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        "INSERT INTO metadata (key, value) VALUES (%s, %s)"
+        " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
         (key, json.dumps(value)),
     )
 
 
 def meta(key, default=None):
     with connect() as db:
-        item = db.execute("SELECT value FROM metadata WHERE key=?", (key,)).fetchone()
-        return json.loads(item["value"]) if item else default
+        item = db.execute("SELECT value FROM metadata WHERE key=%s", (key,)).fetchone()
+        return item["value"] if item else default
 
 
 def location_key(location):
@@ -139,7 +134,21 @@ CATEGORIES = (
 
 def events():
     with connect() as db:
-        return [dict(r) for r in db.execute("SELECT * FROM events ORDER BY start DESC,id DESC")]
+        return [
+            dict(
+                id=r["id"],
+                start=r["start_date"].isoformat(),
+                end=r["end_date"].isoformat(),
+                title=r["title"],
+                category=r["category"],
+                notes=r["notes"],
+                updated_at=r["updated_at"].isoformat(),
+            )
+            for r in db.execute(
+                "SELECT id, start_date, end_date, title, category, notes, updated_at"
+                " FROM events ORDER BY start_date DESC, id DESC"
+            )
+        ]
 
 
 def save_event(payload):
@@ -167,16 +176,18 @@ def save_event(payload):
             if not isinstance(event_id, int) or event_id < 1:
                 raise ValueError("The event ID is invalid.")
             updated = db.execute(
-                "UPDATE events SET start=?,end=?,title=?,category=?,notes=?,updated_at=? WHERE id=?",
+                "UPDATE events SET start_date=%s, end_date=%s, title=%s, category=%s, notes=%s,"
+                " updated_at=%s WHERE id=%s",
                 (start.isoformat(), end.isoformat(), title, category, notes, now(), event_id),
             )
             if updated.rowcount != 1:
                 raise ValueError("This event no longer exists. Refresh and try again.")
         else:
             event_id = db.execute(
-                "INSERT INTO events(start,end,title,category,notes,updated_at) VALUES (?,?,?,?,?,?)",
+                "INSERT INTO events (start_date, end_date, title, category, notes, updated_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
                 (start.isoformat(), end.isoformat(), title, category, notes, now()),
-            ).lastrowid
+            ).fetchone()["id"]
     return event_id
 
 
@@ -184,7 +195,7 @@ def delete_event(event_id):
     if not isinstance(event_id, int) or event_id < 1:
         raise ValueError("The event ID is invalid.")
     with connect() as db:
-        db.execute("DELETE FROM events WHERE id=?", (event_id,))
+        db.execute("DELETE FROM events WHERE id=%s", (event_id,))
 
 
 def prior_window(row, statements):
@@ -261,9 +272,10 @@ def weather_context(statements):
         return {}
     with connect() as db:
         records = {
-            r["day"]: dict(r)
+            r["day"]: r
             for r in db.execute(
-                "SELECT * FROM weather WHERE location_key=?", (location_key(location),)
+                "SELECT day::text AS day, mean, low, high FROM weather WHERE location_key=%s",
+                (location_key(location),),
             )
         }
     result = {}
@@ -309,7 +321,9 @@ def refresh_weather():
             with connect() as db:
                 cached = {
                     r["day"]
-                    for r in db.execute("SELECT day FROM weather WHERE location_key=?", (key,))
+                    for r in db.execute(
+                        "SELECT day::text AS day FROM weather WHERE location_key=%s", (key,)
+                    )
                 }
             missing = sorted(needed - cached)
             # Merge adjoining days into bounded requests; each successful batch survives failures.
@@ -347,21 +361,26 @@ def refresh_weather():
                         "Weather provider returned incomplete arrays. Try refreshing later."
                     )
                 with connect() as db:
-                    for day, mean, low, high in zip(dates, means, lows, highs):
+                    for day, mean, low, high in zip(dates, means, lows, highs, strict=True):
                         if day not in needed or any(
                             v is None or not isinstance(v, (int, float)) or not math.isfinite(v)
                             for v in (mean, low, high)
                         ):
                             continue
                         db.execute(
-                            "INSERT OR REPLACE INTO weather VALUES (?,?,?,?,?,?)",
+                            "INSERT INTO weather (location_key, day, mean, low, high, fetched_at)"
+                            " VALUES (%s, %s, %s, %s, %s, %s)"
+                            " ON CONFLICT (location_key, day) DO UPDATE SET mean = EXCLUDED.mean,"
+                            " low = EXCLUDED.low, high = EXCLUDED.high, fetched_at = EXCLUDED.fetched_at",
                             (key, day, mean, low, high, now()),
                         )
                         fetched += 1
             with connect() as db:
                 remaining = needed - {
                     r["day"]
-                    for r in db.execute("SELECT day FROM weather WHERE location_key=?", (key,))
+                    for r in db.execute(
+                        "SELECT day::text AS day FROM weather WHERE location_key=%s", (key,)
+                    )
                 }
                 set_meta(
                     db,
@@ -375,7 +394,7 @@ def refresh_weather():
                         else None,
                     ),
                 )
-        except Exception as error:
+        except Exception:
             with connect() as db:
                 set_meta(
                     db,

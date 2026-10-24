@@ -1,14 +1,16 @@
+import hashlib
 import importlib.util
 import json
 import os
-from pathlib import Path
+import sys
 import tempfile
 import unittest
-from unittest.mock import patch
 from contextlib import nullcontext
+from pathlib import Path
 from types import SimpleNamespace
-import hashlib
-import sys
+from unittest.mock import patch
+
+import pg
 
 root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(root / "app"))
@@ -16,7 +18,7 @@ os.environ["DATA_DIR"] = tempfile.mkdtemp()
 spec = importlib.util.spec_from_file_location("server", root / "app/server.py")
 server = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(server)
-import enrichment
+import enrichment  # noqa: E402
 
 ACCOUNT = hashlib.sha256(b"1234567890").hexdigest()
 BASE = dict(
@@ -55,6 +57,7 @@ class Imports(unittest.TestCase):
         server.ACCOUNT_HASH = ACCOUNT
         server.DATA = Path(self.temp.name) / "data"
         (self.fixture / "seed.json").write_text(json.dumps([BASE]))
+        pg.reset_database()
         server.initialize()
         self.row = dict(
             BASE,
@@ -76,16 +79,18 @@ class Imports(unittest.TestCase):
             with server.connect() as db:
                 self.assertEqual(
                     db.execute(
-                        "SELECT pdf FROM statements WHERE end=?", (self.row["end"],)
+                        "SELECT pdf FROM statements WHERE period_end=%s", (self.row["end"],)
                     ).fetchone()["pdf"],
                     b"new",
                 )
 
     def test_conflict_and_overlap_keep_data(self):
         for bad in [dict(self.row, end="2026-09-09"), dict(self.row, start="2026-09-08")]:
-            with patch.object(server, "parse_pdf", return_value=bad):
-                with self.assertRaises(server.ImportErrorValue):
-                    server.import_pdf(b"conflict", "x.pdf", True)
+            with (
+                patch.object(server, "parse_pdf", return_value=bad),
+                self.assertRaises(server.ImportErrorValue),
+            ):
+                server.import_pdf(b"conflict", "x.pdf", True)
         self.assertEqual(len(server.rows()), 1)
 
     def test_parser_checks_account_meter_and_bill(self):
@@ -129,7 +134,7 @@ class Imports(unittest.TestCase):
 
     def test_clean_install_and_account_survives_without_private_files(self):
         (self.fixture / "seed.json").unlink()
-        server.DATA = Path(self.temp.name) / "clean"
+        pg.reset_database()
         server.ACCOUNT_HASH = None
         server.initialize()
         self.assertEqual(server.rows(), [])
@@ -137,9 +142,11 @@ class Imports(unittest.TestCase):
             server.import_pdf(b"first", "x.pdf", True)
         server.initialize()
         self.assertEqual(enrichment.meta("account_hash"), ACCOUNT)
-        with patch.object(server, "parse_pdf", return_value=dict(BASE, _account_hash="different")):
-            with self.assertRaises(server.ImportErrorValue):
-                server.import_pdf(b"other", "y.pdf", True)
+        with (
+            patch.object(server, "parse_pdf", return_value=dict(BASE, _account_hash="different")),
+            self.assertRaises(server.ImportErrorValue),
+        ):
+            server.import_pdf(b"other", "y.pdf", True)
 
     def test_events_validation_edit_delete_and_persistence(self):
         payload = dict(
@@ -184,7 +191,7 @@ class Imports(unittest.TestCase):
         with server.connect() as db:
             old = dict(BASE)
             old.pop("prior_year_days")
-            db.execute("UPDATE statements SET row_json=?", (json.dumps(old),))
+            db.execute("UPDATE statements SET row_json=%s", (json.dumps(old),))
         server.initialize()
         self.assertEqual(server.rows()[0]["prior_year_days"], 32)
 
@@ -200,7 +207,8 @@ class Imports(unittest.TestCase):
         enrichment.save_location(location)
         with server.connect() as db:
             db.execute(
-                "INSERT INTO weather VALUES (?,?,?,?,?,?)",
+                "INSERT INTO weather (location_key, day, mean, low, high, fetched_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s)",
                 (enrichment.location_key(location), "2026-08-10", 70, 60, 80, enrichment.now()),
             )
         with patch.object(enrichment, "fetch_json", side_effect=OSError("offline")):

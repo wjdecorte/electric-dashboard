@@ -1,6 +1,6 @@
 # Ampersight
 
-Ampersight is a local electricity dashboard for Synology Container Manager. Import Amicalola EMC PDFs, compare reported usage with last year, view cached weather by billing period, and record household events. SQLite stores statements, originals, events and settings on the NAS. No interval electricity readings or appliance usage are invented.
+Ampersight is a local electricity dashboard for Synology Container Manager. Import Amicalola EMC PDFs, compare reported usage with last year, view cached weather by billing period, and record household events. PostgreSQL stores statements, original PDFs, events, settings and cached weather on the NAS. No interval electricity readings or appliance usage are invented.
 
 ## Deployment pipeline
 
@@ -14,9 +14,10 @@ Images are tagged `latest` for master, `sha-FULL_COMMIT_SHA` for every published
 
 1. Wait for **Test and publish container** in GitHub Actions to complete.
 2. In File Station, put `docker-compose.yml`, `update.sh`, and `scripts/prepare_data.py` in the existing NAS project folder, typically `/volume1/docker/electric-dashboard`. The scripts/ folder must be beside the Compose file.
-3. **Keep your existing data/ folder.** Also retain old app/seed.json, app/account.json and app/location.json if present until the first migration completes. They are local initialization inputs; they never enter published images.
+3. **Keep your existing data/ folder.** An existing `data/statements.sqlite` is imported into PostgreSQL automatically the first time the new version starts; the file is never modified or deleted, so it doubles as a pre-migration backup. Also retain old app/seed.json, app/account.json and app/location.json if present until the first migration completes. They are local initialization inputs; they never enter published images.
 4. Check image access. New GHCR packages are private by default even for public repositories. Either log in to GHCR on the NAS, or change this code-only package to public in GitHub's package settings if anonymous pulls are desired. Do not expose the NAS dashboard itself to the internet.
-5. Connect to the NAS over SSH and run:
+5. Copy `.env.example` to `.env` in the same folder and set a strong `POSTGRES_PASSWORD`. Compose refuses to start without it. Choose it once; changing it later requires changing the password inside the database too.
+6. Connect to the NAS over SSH and run:
 
 ```sh
 cd /volume1/docker/electric-dashboard
@@ -46,11 +47,12 @@ Run `sudo sh update.sh` whenever you want the latest tested image. It:
 - Pulls before stopping the running application; a download failure leaves it running.
 - Skips recreation when the same image is already healthy.
 - Tags the previous image for rollback.
-- Stops the app, makes a consistent SQLite backup, and migrates local private initialization files into NAS storage only when needed.
+- Stops the app, starts the database if needed, and writes a consistent `pg_dump` backup to `data/backups/`.
+- Imports a legacy `statements.sqlite` and migrates local private initialization files into PostgreSQL only when needed.
 - Recreates the existing electric project without building on the NAS.
 - Checks container health and restores the previous image if startup fails.
 
-Backups are kept under `data/backups/`, retaining the five most recent automatic snapshots. Automatic rollback restores the previous image, not the database; migrations currently add tables/fields without deleting old data. For a breaking migration, restore a matching database backup while the app is stopped. Initial installations without a previous image have no image rollback.
+Backups (`pre-update-*.dump`, PostgreSQL custom format) are kept under `data/backups/`, retaining the five most recent. Automatic rollback restores the previous image, not the database; migrations currently add tables/fields without deleting old data. To restore a backup, stop the app and run `docker compose -p electric exec -T db pg_restore -U ampersight -d ampersight --clean --if-exists < data/backups/FILE.dump`. Rolling back to a pre-PostgreSQL image still finds the untouched `statements.sqlite`, but loses anything entered after the migration. Initial installations without a previous image have no image rollback.
 
 For hands-off updates, add **DSM Control Panel → Task Scheduler → Create → Scheduled Task → User-defined script**, run as root, and choose your preferred schedule (for example, nightly). Use:
 
@@ -74,7 +76,7 @@ For an immediate image rollback, temporarily set ELECTRIC_IMAGE=electric-dashboa
 
 ## Storage and privacy
 
-The `./data:/data` bind mount keeps runtime data outside containers. Retain this exact mapping and folder across upgrades. CSV/JSON downloads contain statement records, not household events or original attachments; back up the database for a complete copy.
+PostgreSQL files live in `data/postgres` on the NAS (bind mount `./data/postgres`) and backups in `data/backups`. Keep the whole `data/` folder across upgrades; the app container only mounts it read-only to import a legacy SQLite file. The database is not published on any port and is reachable only from the app container. CSV/JSON downloads contain statement records, not household events or original attachments; use the `pg_dump` backups for a complete copy.
 
 Private seed/account/location JSON, uploaded PDFs, databases, exports and local secrets are ignored by Git. Published images also exclude private initialization JSON, data/, and Git metadata. A fresh GitHub clone starts without personal data. This local edition has no sign-in: limit its port to the home network/VPN.
 
@@ -88,22 +90,35 @@ Household events support dated ranges, categories, notes, editing and deletion. 
 
 ## Local development
 
-Production Compose only pulls a published image. To build locally:
+The project uses [uv](https://docs.astral.sh/uv/) for Python and dependencies, [ruff](https://docs.astral.sh/ruff/) for linting and formatting, and [pre-commit](https://pre-commit.com/) for Git hooks (whitespace, file checks, ruff and a lockfile check).
 
 ```sh
-docker compose -p electric-dev -f docker-compose.yml -f compose.local.yml up -d --build
+uv sync                        # create .venv with runtime and dev dependencies
+uv run pre-commit install      # install the Git hook once per clone
+uv run pre-commit run --all-files
+uv run ruff check . && uv run ruff format --check .
 ```
 
-Use a different folder/data mapping and port if running beside the NAS deployment. The same privacy exclusions apply to local images; private initialization JSON is not baked in. The NAS bootstrap script can migrate local inputs into data/.
+Add dependencies with `uv add PACKAGE` (this updates `pyproject.toml` and `uv.lock`; commit both).
 
-Checks:
+Tests need a throwaway PostgreSQL database whose `public` schema is wiped before every test:
 
 ```sh
-python -m pip install -r requirements.txt
-python -m unittest discover -s tests -v
+docker run -d --name ampersight-test-pg -e POSTGRES_PASSWORD=test -e POSTGRES_DB=ampersight_test -p 127.0.0.1:55432:5432 postgres:17-alpine
+uv run python -m unittest discover -s tests -v
 node --check app/static/app.js
 node --check app/static/charts.js
 ```
+
+Set `TEST_DATABASE_URL` to use a different database. Never point it at real data.
+
+To run the app with PostgreSQL in Docker (production Compose only pulls a published image, so add the local build file):
+
+```sh
+POSTGRES_PASSWORD=localdev docker compose -p electric-dev -f docker-compose.yml -f compose.local.yml up -d --build
+```
+
+Use a different folder/data mapping and port if running beside the NAS deployment. To run the server directly, start a PostgreSQL container and use `DATABASE_URL=postgresql://USER:PASSWORD@127.0.0.1:PORT/DB uv run python app/server.py`. The same privacy exclusions apply to local images; private initialization JSON is not baked in. The NAS bootstrap script can migrate local inputs into the database.
 
 ## Troubleshooting
 

@@ -6,15 +6,17 @@ import io
 import json
 import logging
 import os
-from pathlib import Path
 import re
-import sqlite3
 from datetime import datetime
 from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote, urlsplit, parse_qs
-import enrichment
+from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlsplit
+
 import pdfplumber
+
+import database
+import enrichment
 
 ROOT = Path(__file__).resolve().parent
 DATA = Path(os.environ.get("DATA_DIR", "/data"))
@@ -38,29 +40,25 @@ class ImportErrorValue(ValueError):
     pass
 
 
-def connect():
-    db = sqlite3.connect(DATA / "statements.sqlite", timeout=30)
-    db.row_factory = sqlite3.Row
-    return db
+connect = database.connect
 
 
 def initialize():
-    DATA.mkdir(parents=True, exist_ok=True)
+    database.wait_for_database()
     seed_rows = (
         json.loads((ROOT / "seed.json").read_text()) if (ROOT / "seed.json").exists() else []
     )
     with connect() as db:
-        db.execute(
-            "CREATE TABLE IF NOT EXISTS statements (end TEXT PRIMARY KEY, start TEXT NOT NULL, row_json TEXT NOT NULL, pdf BLOB, sha256 TEXT UNIQUE)"
-        )
-        db.execute("CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT)")
+        database.create_schema(db)
+        database.import_legacy_sqlite(db, DATA / "statements.sqlite")
         if not db.execute("SELECT 1 FROM metadata WHERE key='initialized'").fetchone():
             for row in seed_rows:
                 db.execute(
-                    "INSERT OR IGNORE INTO statements VALUES (?,?,?,?,?)",
-                    (row["end"], row["start"], json.dumps(row), None, None),
+                    "INSERT INTO statements (period_end, period_start, row_json)"
+                    " VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                    (row["end"], row["start"], json.dumps(row)),
                 )
-            db.execute("INSERT INTO metadata VALUES ('initialized','1')")
+            enrichment.set_meta(db, "initialized", 1)
         if (
             ACCOUNT_HASH
             and not db.execute("SELECT 1 FROM metadata WHERE key='account_hash'").fetchone()
@@ -75,16 +73,16 @@ def initialize():
         # Enrich existing installations with comparison service days from seed evidence.
         for seed in seed_rows:
             existing = db.execute(
-                "SELECT row_json FROM statements WHERE end=?", (seed["end"],)
+                "SELECT row_json FROM statements WHERE period_end=%s", (seed["end"],)
             ).fetchone()
             if existing:
-                row = json.loads(existing["row_json"])
+                row = existing["row_json"]
                 if "prior_year_days" not in row and row.get("prior_year_kwh") == seed.get(
                     "prior_year_kwh"
                 ):
                     row["prior_year_days"] = seed.get("prior_year_days", 0)
                     db.execute(
-                        "UPDATE statements SET row_json=? WHERE end=?",
+                        "UPDATE statements SET row_json=%s WHERE period_end=%s",
                         (json.dumps(row), row["end"]),
                     )
 
@@ -92,8 +90,10 @@ def initialize():
 def rows():
     with connect() as db:
         return [
-            dict(json.loads(r["row_json"]), has_pdf=r["pdf"] is not None)
-            for r in db.execute("SELECT * FROM statements ORDER BY end")
+            dict(r["row_json"], has_pdf=r["has_pdf"])
+            for r in db.execute(
+                "SELECT row_json, pdf IS NOT NULL AS has_pdf FROM statements ORDER BY period_end"
+            )
         ]
 
 
@@ -138,7 +138,10 @@ def parse_pdf(raw, filename):
             "Could not identify one billing period. This statement layout is unsupported."
         )
     start, end, days, prev, present, multiplier, kwh, charge = matches[0]
-    integer = lambda v: int(v.replace(",", ""))
+
+    def integer(v):
+        return int(v.replace(",", ""))
+
     try:
         start = datetime.strptime(start, "%m/%d/%y").date()
         end = datetime.strptime(end, "%m/%d/%y").date()
@@ -201,11 +204,13 @@ def parse_pdf(raw, filename):
 
 
 def check_row(db, row, digest):
-    if db.execute("SELECT 1 FROM statements WHERE sha256=?", (digest,)).fetchone():
+    if db.execute("SELECT 1 FROM statements WHERE sha256=%s", (digest,)).fetchone():
         return "duplicate"
-    existing = db.execute("SELECT * FROM statements WHERE end=?", (row["end"],)).fetchone()
+    existing = db.execute(
+        "SELECT row_json FROM statements WHERE period_end=%s", (row["end"],)
+    ).fetchone()
     if existing:
-        saved = json.loads(existing["row_json"])
+        saved = existing["row_json"]
         fields = [
             "start",
             "end",
@@ -223,7 +228,8 @@ def check_row(db, row, digest):
             "A different statement already exists for this billing date. Existing data was kept."
         )
     if db.execute(
-        "SELECT 1 FROM statements WHERE start < ? AND end > ?", (row["end"], row["start"])
+        "SELECT 1 FROM statements WHERE period_start < %s AND period_end > %s",
+        (row["end"], row["start"]),
     ).fetchone():
         raise ImportErrorValue(
             "This billing period overlaps an existing statement. Existing data was kept."
@@ -239,22 +245,20 @@ def import_pdf(raw, filename, save=False):
     account_hash = row.pop("_account_hash", ACCOUNT_HASH)
     digest = hashlib.sha256(raw).hexdigest()
     with connect() as db:
-        db.execute("BEGIN IMMEDIATE" if save else "BEGIN")
+        if save:
+            db.execute("SELECT pg_advisory_xact_lock(%s)", (database.IMPORT_LOCK,))
         current_account = db.execute(
             "SELECT value FROM metadata WHERE key='account_hash'"
         ).fetchone()
-        if (
-            current_account
-            and account_hash
-            and json.loads(current_account["value"]) != account_hash
-        ):
+        if current_account and account_hash and current_account["value"] != account_hash:
             raise ImportErrorValue(
                 "This statement belongs to a different account. Nothing was saved."
             )
         status = check_row(db, row, digest)
         if save and status == "ready":
             db.execute(
-                "INSERT INTO statements VALUES (?,?,?,?,?)",
+                "INSERT INTO statements (period_end, period_start, row_json, pdf, sha256)"
+                " VALUES (%s, %s, %s, %s, %s)",
                 (row["end"], row["start"], json.dumps(row), raw, digest),
             )
             if account_hash and not current_account:
@@ -334,6 +338,12 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/api/statements", "/data.json"):
             return self.reply(200, rows())
         if path == "/health":
+            try:
+                with connect() as db:
+                    db.execute("SELECT 1")
+            except Exception:
+                logging.exception("Health check could not reach PostgreSQL")
+                return self.reply(503, {"status": "database unavailable"})
             return self.reply(
                 200,
                 {
@@ -364,7 +374,7 @@ class Handler(BaseHTTPRequestHandler):
         if re.fullmatch(r"/api/pdf/\d{4}-\d{2}-\d{2}", path):
             with connect() as db:
                 item = db.execute(
-                    "SELECT pdf FROM statements WHERE end=?", (path.rsplit("/", 1)[1],)
+                    "SELECT pdf FROM statements WHERE period_end=%s", (path.rsplit("/", 1)[1],)
                 ).fetchone()
             if item and item["pdf"]:
                 return self.reply(
@@ -463,5 +473,5 @@ if __name__ == "__main__":
     if enrichment.meta("weather_location"):
         enrichment.refresh_weather()
     port = int(os.environ.get("PORT", "8080"))
-    print(f"Electric dashboard listening on {port}", flush=True)
+    print(f"Ampersight listening on {port}", flush=True)
     ThreadingHTTPServer((os.environ.get("BIND_HOST", "0.0.0.0"), port), Handler).serve_forever()

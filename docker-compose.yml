@@ -1,14 +1,44 @@
 services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ampersight
+      POSTGRES_DB: ampersight
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ampersight -d ampersight"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
   electric-dashboard:
     image: ${ELECTRIC_IMAGE:-ghcr.io/wjdecorte/electric-dashboard:latest}
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - "8088:8080"
     volumes:
-      - ./data:/data
+      # Read-only: only a legacy statements.sqlite is read, once, to import it into PostgreSQL.
+      - ./data:/data:ro
     environment:
       DATA_DIR: /data
       PORT: "8080"
+      PGHOST: db
+      PGUSER: ampersight
+      PGDATABASE: ampersight
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}
     security_opt:
       - no-new-privileges:true
     cap_drop:

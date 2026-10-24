@@ -25,6 +25,8 @@ extend-exclude = [".impeccable"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+# Long SQL, error messages and regexes stay readable on one line; the formatter owns the rest.
+ignore = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["database", "enrichment", "server"]

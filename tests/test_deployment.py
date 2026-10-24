@@ -1,11 +1,10 @@
 import json
 import os
-from pathlib import Path
 import shutil
-import sqlite3
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MOCK = """#!/usr/bin/env python3
@@ -15,14 +14,18 @@ with (root/'calls').open('a') as f:f.write(json.dumps({'args':args,'rollback':ro
 if args[0]=='compose':
  command=args[5:]
  if command[:2]==['config','--images']:print('ghcr.io/example/dashboard:latest')
- elif command[:1]==['ps']:print('new' if state.exists() else 'old')
- elif command[:1]==['up']:state.write_text('rollback' if rollback else 'new')
+ elif command[:1]==['ps']:print('db-id' if command[-1]=='db' else 'new' if state.exists() else 'old')
+ elif command[:1]==['up'] and command[-1]!='db':state.write_text('rollback' if rollback else 'new')
+ elif command[:1]==['exec']:
+  if mode=='backup-failure':sys.exit(1)
+  print('PGDMP-fake')
+ elif command[:1]==['run'] and mode=='prepare-failure':sys.exit(1)
  elif command[:1]==['pull'] and mode=='pull-failure':sys.exit(1)
 elif args[:2]==['image','inspect']:print('old-id' if mode=='unchanged' else 'new-id')
 elif args[:1]==['inspect']:
  if args[2]=='{{.Image}}':print('old-id')
+ elif args[3]=='db-id':print('healthy')
  else:print('unhealthy' if state.exists() and state.read_text()!='rollback' and mode=='unhealthy' else 'healthy')
-elif args[:1]==['run'] and mode=='prepare-failure':sys.exit(1)
 """
 
 
@@ -79,34 +82,19 @@ class Deployment(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue(any(call["rollback"] and "up" in call["args"] for call in calls))
 
-    def test_private_bootstrap_and_backup_are_local_and_preserved(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            project = root / "project"
-            data = root / "data"
-            (project / "app").mkdir(parents=True)
-            data.mkdir()
-            (project / "app/account.json").write_text(json.dumps({"sha256": "synthetic-hash"}))
-            (project / "app/location.json").write_text(json.dumps({"name": "Synthetic city"}))
-            with sqlite3.connect(data / "statements.sqlite") as db:
-                db.execute("CREATE TABLE evidence (value TEXT)")
-                db.execute("INSERT INTO evidence VALUES ('preserve')")
-            subprocess.run(
-                ["python3", str(ROOT / "scripts/prepare_data.py"), str(project), str(data)],
-                check=True,
-                capture_output=True,
-            )
-            with sqlite3.connect(data / "statements.sqlite") as db:
-                self.assertEqual(db.execute("SELECT value FROM evidence").fetchone()[0], "preserve")
-                self.assertEqual(
-                    json.loads(
-                        db.execute(
-                            "SELECT value FROM metadata WHERE key='account_hash'"
-                        ).fetchone()[0]
-                    ),
-                    "synthetic-hash",
-                )
-            self.assertEqual(len(list((data / "backups").glob("*.sqlite"))), 1)
+    def test_backup_failure_restarts_previous_container_before_preparing_data(self):
+        result, calls = self.run_update("backup-failure")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(any("start" in call["args"] for call in calls))
+        self.assertFalse(any("run" in call["args"] for call in calls))
+
+    def test_database_is_backed_up_after_the_app_stops_and_before_recreation(self):
+        result, calls = self.run_update("healthy")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        verbs = [call["args"][5] for call in calls if call["args"][0] == "compose"]
+        self.assertLess(verbs.index("stop"), verbs.index("exec"))
+        self.assertLess(verbs.index("exec"), verbs.index("run"))
+        self.assertLess(verbs.index("run"), len(verbs) - 1 - verbs[::-1].index("up"))
 
 
 if __name__ == "__main__":
