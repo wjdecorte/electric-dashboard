@@ -4,7 +4,8 @@ set -eu
 cd "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 project_name="${PROJECT_NAME:-electric}"
 compose() { docker compose -p "$project_name" -f docker-compose.yml "$@"; }
-mkdir -p data
+# Docker on Synology will not create bind-mount folders itself.
+mkdir -p data data/postgres data/backups
 if ! mkdir data/.update-lock 2>/dev/null; then
   echo 'Another update is active. If an earlier update was interrupted, remove data/.update-lock after checking no update is running.' >&2
   exit 1
