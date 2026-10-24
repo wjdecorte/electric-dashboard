@@ -16,7 +16,7 @@ Images are tagged `latest` for master, `sha-FULL_COMMIT_SHA` for every published
 2. In File Station, put `docker-compose.yml`, `update.sh`, and `scripts/prepare_data.py` in the existing NAS project folder, typically `/volume1/docker/electric-dashboard`. The scripts/ folder must be beside the Compose file.
 3. **Keep your existing data/ folder.** An existing `data/statements.sqlite` is imported into PostgreSQL automatically the first time the new version starts; the file is never modified or deleted, so it doubles as a pre-migration backup. Also retain old app/seed.json, app/account.json and app/location.json if present until the first migration completes. They are local initialization inputs; they never enter published images.
 4. Check image access. New GHCR packages are private by default even for public repositories. Either log in to GHCR on the NAS, or change this code-only package to public in GitHub's package settings if anonymous pulls are desired. Do not expose the NAS dashboard itself to the internet.
-5. Copy `.env.example` to `.env` in the same folder and set a strong `POSTGRES_PASSWORD`. Compose refuses to start without it. Choose it once; changing it later requires changing the password inside the database too.
+5. Copy `.env.example` to `.env` in the same folder and set a strong `POSTGRES_PASSWORD`. Compose refuses to start without it. Wrap the value in single quotes (`POSTGRES_PASSWORD='...'`); an unquoted `$` is read as a variable and silently truncates the password (symptom: `The "X" variable is not set` warnings). Choose it once; changing it later requires changing the password inside the database too.
 6. Connect to the NAS over SSH and run:
 
 ```sh
