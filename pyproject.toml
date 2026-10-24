@@ -1,0 +1,30 @@
+[project]
+name = "ampersight"
+version = "2.2.0"
+description = "Electricity statement dashboard with prior-year comparisons and weather context."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pdfplumber==0.11.9",
+    "psycopg[binary]>=3.2,<4",
+]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.0",
+    "ruff>=0.9",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".impeccable"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["database", "enrichment", "server"]
