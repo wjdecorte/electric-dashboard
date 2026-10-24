@@ -37,3 +37,4 @@ venv/
 
 # macOS metadata
 .DS_Store
+.ruff_cache/

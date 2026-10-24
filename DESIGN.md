@@ -1,6 +1,6 @@
 ---
-name: Electric dashboard
-description: Restrained light workspace for electricity evidence.
+name: Ampersight
+description: Navy app band over a light evidence workspace.
 colors:
   bg: "#f4f6f8"
   surface: "#fff"
@@ -79,7 +79,7 @@ components:
     padding: "24px"
 ---
 
-# Design System: Electric dashboard
+# Design System: Ampersight
 
 ## Overview
 
@@ -103,7 +103,7 @@ The page container tops out at (1440px), with desktop gutters of (36px) and sect
 
 ## Elevation & Depth
 
-Flat white surfaces sit on the cool gray canvas. No raised card shadows. Dividers and selection fills communicate grouping; active navigation uses a blue underline and selected chart periods an inset baseline.
+White surfaces with soft shadows and 16px corners sit on the cool gray canvas under a navy gradient app band. Dividers and selection fills communicate grouping; active navigation uses a blue underline and selected chart periods an inset baseline.
 
 ## Shapes
 

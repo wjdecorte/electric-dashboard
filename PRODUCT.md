@@ -5,7 +5,7 @@
 web
 
 ## Stack
-Python standard-library HTTP server, pdfplumber, SQLite, plain HTML/CSS/JavaScript. Docker on Synology Container Manager, project name electric.
+Python standard-library HTTP server, pdfplumber, PostgreSQL (psycopg), plain HTML/CSS/JavaScript, managed with uv, ruff and pre-commit. Docker on Synology Container Manager, project name electric.
 
 ## Users
 A homeowner reviewing their own Amicalola EMC electricity statements on a home network.
@@ -17,7 +17,7 @@ Understand changes in statement-level electricity usage and charges, with prior-
 Original PDF import with validation, duplicate protection, same-account checks and original-file retention. Statement totals and daily averages only: the utility does not offer daily or hourly usage to the user. Weather is historical regional modeled data, cached locally; never represents appliance measurements. Household event ranges and notes can be created, edited and deleted. Current charges exclude prior balances and payments.
 
 ## Operating Context
-NAS bind-mounted data folder, offline cached-weather access, manual rebuild/recreate update script. Local edition has no authentication and is intended for the home LAN/VPN. Private seed, account, location and runtime data stay out of Git. Fresh clones must start without private initialization files.
+NAS bind-mounted data folder (PostgreSQL files and pg_dump backups), offline cached-weather access, manual rebuild/recreate update script. Local edition has no authentication and is intended for the home LAN/VPN. Private seed, account, location and runtime data stay out of Git. Fresh clones must start without private initialization files.
 
 ## Brand Commitments
 User accepted the restrained light workspace, blue current usage, gray prior-year comparisons and amber weather theme recommended in chat.
